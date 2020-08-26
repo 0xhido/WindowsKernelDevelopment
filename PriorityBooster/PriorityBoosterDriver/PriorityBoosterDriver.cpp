@@ -51,7 +51,7 @@ NTSTATUS PriorityBoosterDeviceControl(PDEVICE_OBJECT /*DeviceObject*/, PIRP Irp)
 			}
 
 			PETHREAD Thread;
-			HANDLE hThreadId = ULongToHandle(pData->Priority);
+			HANDLE hThreadId = ULongToHandle(pData->ThreadId);
 			status = PsLookupThreadByThreadId(hThreadId, &Thread);
 			if (!NT_SUCCESS(status)) {
 				KdPrint(("Could not find the thread (according to the thread id %d\n", pData->ThreadId));

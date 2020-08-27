@@ -10,7 +10,11 @@ NTSTATUS CompleteIrp(PIRP Irp, NTSTATUS status = STATUS_SUCCESS, ULONG_PTR infor
 	return status;
 }
 
-void ZeroUnloadDriver(_In_ PDRIVER_OBJECT /*DriverObject*/) {
+void ZeroUnloadDriver(_In_ PDRIVER_OBJECT DriverObject) {
+	UNICODE_STRING symbolicLink = RTL_CONSTANT_STRING(L"\\??\\Zero");
+	IoDeleteSymbolicLink(&symbolicLink);
+	IoDeleteDevice(DriverObject->DeviceObject);
+
 	KdPrint(("Zero driver unloaded successfully\n"));
 }
 

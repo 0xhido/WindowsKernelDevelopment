@@ -14,12 +14,11 @@ void ZeroUnloadDriver(_In_ PDRIVER_OBJECT /*DriverObject*/) {
 	KdPrint(("Zero driver unloaded successfully\n"));
 }
 
-NTSTATUS ZeroIrpMajorCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
+NTSTATUS ZeroIrpMajorCreateClose(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	return CompleteIrp(Irp);
 }
 
-NTSTATUS ZeroIrpMajorRead(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
-	NTSTATUS status = STATUS_SUCCESS;
+NTSTATUS ZeroIrpMajorRead(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
 
 	// Validate user request
@@ -41,8 +40,7 @@ NTSTATUS ZeroIrpMajorRead(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
 	return CompleteIrp(Irp, STATUS_SUCCESS, readLength);
 }
 
-NTSTATUS ZeroIrpMajorWrite(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp) {
-	NTSTATUS status = STATUS_SUCCESS;
+NTSTATUS ZeroIrpMajorWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
 	ULONG writeLength = stack->Parameters.Write.Length;
 

@@ -1,6 +1,10 @@
 #include "pch.h"
+#include "ZeroDriverCommon.h"
 
 #define DRIVER_PREFIX "[ZeroDriver] " 
+
+long long g_ReadCount;
+long long g_WriteCount;
 
 NTSTATUS CompleteIrp(PIRP Irp, NTSTATUS status = STATUS_SUCCESS, ULONG_PTR inforamtion = 0) {
 	Irp->IoStatus.Status = status;
@@ -36,9 +40,10 @@ NTSTATUS ZeroIrpMajorRead(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	if (!pBuffer) {
 		return CompleteIrp(Irp, STATUS_INSUFFICIENT_RESOURCES);
 	}
-
+	
 	// Implement the driver's functionality - zero out the buffer
 	memset(pBuffer, 0, readLength);
+	InterlockedAdd64(&g_ReadCount, readLength);
 
 	// Set the Information to be the size of bytes' read
 	return CompleteIrp(Irp, STATUS_SUCCESS, readLength);
@@ -46,15 +51,39 @@ NTSTATUS ZeroIrpMajorRead(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 
 NTSTATUS ZeroIrpMajorWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+	
 	ULONG writeLength = stack->Parameters.Write.Length;
+	InterlockedAdd64(&g_WriteCount, writeLength);
 
 	// Just set Information to be the length of bytes provided by the user 
 	return CompleteIrp(Irp, STATUS_SUCCESS, writeLength);
 }
 
+NTSTATUS ZeroIrpMajorDeviceControl(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
+	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+	
+	ULONG IoControlCode = stack->Parameters.DeviceIoControl.IoControlCode;
+	if (IoControlCode != IOCTL_ZERO_QUERY_BYTES) {
+		return CompleteIrp(Irp, STATUS_INVALID_DEVICE_REQUEST);
+	}
+
+	ULONG bufferSize = stack->Parameters.DeviceIoControl.OutputBufferLength;
+	if (bufferSize < sizeof(Bytes)) {
+		return CompleteIrp(Irp, STATUS_BUFFER_TOO_SMALL);
+	}
+
+	Bytes* state = (Bytes*)Irp->AssociatedIrp.SystemBuffer;
+	state->Read = g_ReadCount;
+	state->Write = g_WriteCount;
+
+	return CompleteIrp(Irp, STATUS_SUCCESS, sizeof(*state));
+}
+
 extern "C"
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING /*RegistryPath*/) {
 	NTSTATUS status = STATUS_SUCCESS;
+	g_ReadCount = 0;
+	g_WriteCount = 0;
 
 	// Setting unload routine
 	DriverObject->DriverUnload = ZeroUnloadDriver;
@@ -64,6 +93,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING /*Re
 	DriverObject->MajorFunction[IRP_MJ_CLOSE] = ZeroIrpMajorCreateClose;
 	DriverObject->MajorFunction[IRP_MJ_READ] = ZeroIrpMajorRead;
 	DriverObject->MajorFunction[IRP_MJ_WRITE] = ZeroIrpMajorWrite;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ZeroIrpMajorDeviceControl;
 
 	// Create device object and symbolic link
 	UNICODE_STRING deviceName = RTL_CONSTANT_STRING(L"\\Device\\Zero");

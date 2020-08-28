@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <windows.h>
+#include "../ZeroDriver/ZeroDriverCommon.h"
 
 int ExitWithError(const char* msg) {
 	printf("%s: error=%d\n", msg, GetLastError());
@@ -56,7 +57,7 @@ int TestWriteFile(HANDLE hDevice) {
 	return 0;
 }
 
-int main()
+int main() 
 {
 	HANDLE hDevice = CreateFile(L"\\\\.\\Zero", GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
 	if (hDevice == INVALID_HANDLE_VALUE) {
@@ -66,9 +67,31 @@ int main()
 	int status = 0;
 	status += TestReadFile(hDevice);
 	status += TestWriteFile(hDevice);
+	
+	printf("Tests done.\n");
+
+	if (status == 0) {
+		printf("Quering bytes\n");
+
+		Bytes input = { 10, 199 };
+		Bytes result = { 10, 100 };
+		DWORD bytes = 0;
+		BOOL ok = DeviceIoControl(hDevice,
+			IOCTL_ZERO_QUERY_BYTES,
+			&input, sizeof(input),
+			&result, sizeof(result),
+			&bytes,
+			NULL);
+
+		if (!ok) {
+			return ExitWithError("Command failed");
+		}
+		
+		printf("\tBytes Read: %lld\n", result.Read);
+		printf("\tBytes Written: %lld\n", result.Write);
+	}
 
 	CloseHandle(hDevice);
 
-	printf("Tests done.");
 	return status;
 }

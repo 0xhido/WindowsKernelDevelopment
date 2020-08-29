@@ -47,7 +47,7 @@ NTSTATUS SysMonIrpRead(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 			PLIST_ENTRY entry = RemoveHeadList(&g_Globals.ItemsHead);
 			FullItem<ItemHeader>* item = CONTAINING_RECORD(entry, FullItem<ItemHeader>, Entry);
 			
-			ULONG size = sizeof(item->Data.Size);
+			ULONG size = item->Data.Size;
 			if (userBufferLength < size) {
 				// User could not get any more items 
 				// We need to return the head back to the list
@@ -95,7 +95,7 @@ void OnProcessNotify(_Inout_ PEPROCESS /*Process*/, _In_ HANDLE ProcessId, _Inou
 		// ItemHeader
 		KeQuerySystemTimePrecise(&item.Time);
 		item.Type = ItemType::ProcessCreate;
-		item.Size = sizeof(ProcessCreateInfo);
+		item.Size = sizeof(ProcessCreateInfo) + imageSize + commandLineSize;
 		// ProcessCreateInfo
 		item.ProcessId = HandleToULong(ProcessId);
 		item.ParentProcessId = HandleToULong(CreateInfo->ParentProcessId);

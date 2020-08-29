@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.30413.136
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SysMonDriver", "SysMonDriver\SysMonDriver.vcxproj", "{F8315358-FC48-472B-A895-F74080277B98}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SysMonClient", "SysMonClient\SysMonClient.vcxproj", "{7CBFBC87-8381-4892-B867-E8D36C9979D2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -41,6 +43,18 @@ Global
 		{F8315358-FC48-472B-A895-F74080277B98}.Release|x86.ActiveCfg = Release|Win32
 		{F8315358-FC48-472B-A895-F74080277B98}.Release|x86.Build.0 = Release|Win32
 		{F8315358-FC48-472B-A895-F74080277B98}.Release|x86.Deploy.0 = Release|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|ARM.ActiveCfg = Debug|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|x64.ActiveCfg = Debug|x64
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|x64.Build.0 = Debug|x64
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|x86.ActiveCfg = Debug|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Debug|x86.Build.0 = Debug|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|ARM.ActiveCfg = Release|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|ARM64.ActiveCfg = Release|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|x64.ActiveCfg = Release|x64
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|x64.Build.0 = Release|x64
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|x86.ActiveCfg = Release|Win32
+		{7CBFBC87-8381-4892-B867-E8D36C9979D2}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

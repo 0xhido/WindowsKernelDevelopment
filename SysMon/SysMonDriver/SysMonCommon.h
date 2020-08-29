@@ -3,7 +3,9 @@
 enum class ItemType : short {
 	None,
 	ProcessCreate,
-	ProcessExit
+	ProcessExit,
+	ThreadCreate,
+	ThreadExit
 };
 
 // Common field of all events
@@ -25,4 +27,9 @@ struct ProcessCreateInfo : ItemHeader {
 	USHORT ImageOffset;
 	USHORT CommandLineLength;
 	USHORT CommandLineOffset;
+};
+
+struct ThreadCreateExitInfo : ItemHeader {
+	ULONG ProcessId;
+	ULONG ThreadId;
 };

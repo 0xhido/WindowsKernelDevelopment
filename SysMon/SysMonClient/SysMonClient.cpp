@@ -5,6 +5,9 @@
 #include <windows.h>
 #include "../SysMonDriver/SysMonCommon.h"
 #include "SysMonClient.h"
+#include <map>
+
+std::map<int, std::wstring> g_ProcessesImage;
 
 int Error(const char* msg) {
     printf("%s: error=%d\n", msg, GetLastError());
@@ -39,6 +42,8 @@ void DisplayItems(const BYTE* buffer, const DWORD bytes) {
             std::wstring Image((WCHAR*)(buffer + info->ImageOffset), info->ImageLength);
             std::wstring CommandLine((WCHAR*)(buffer + info->CommandLineOffset), info->CommandLineLength);
 
+            g_ProcessesImage[info->ProcessId] = Image;
+
             printf("Process %d created:\n", info->ProcessId);
             printf("\tImage = %ws\n", Image.c_str());
             printf("\tCommandLine = %ws\n", CommandLine.c_str());
@@ -50,6 +55,24 @@ void DisplayItems(const BYTE* buffer, const DWORD bytes) {
             DisplayTime(header->Time);
             ProcessExitInfo* info = (ProcessExitInfo*)buffer;
             printf("Process %d exited\n", info->ProcessId);
+            break;
+        }
+
+        case ItemType::ThreadCreate: {
+            DisplayTime(header->Time);
+            ThreadCreateExitInfo* info = (ThreadCreateExitInfo*)buffer;
+            printf("Thread %d created:\n", info->ThreadId);
+            printf("\tProcess: %ws (%d)\n", g_ProcessesImage[info->ProcessId].c_str(), info->ProcessId);
+
+            break;
+        }
+
+        case ItemType::ThreadExit: {
+            DisplayTime(header->Time);
+            ThreadCreateExitInfo* info = (ThreadCreateExitInfo*)buffer;
+            printf("Thread %d exited:\n", info->ThreadId);
+            printf("\tProcess: %ws (%d)\n", g_ProcessesImage[info->ProcessId].c_str(), info->ProcessId);
+
             break;
         }
         

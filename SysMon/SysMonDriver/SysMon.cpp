@@ -141,12 +141,36 @@ void OnProcessNotify(_Inout_ PEPROCESS /*Process*/, _In_ HANDLE ProcessId, _Inou
 	}
 }
 
+void OnThreadNotify(_In_ HANDLE ProcessId, _In_ HANDLE ThreadId, _In_ BOOLEAN Create) {
+	auto info = (FullItem<ThreadCreateExitInfo>*)ExAllocatePoolWithTag(
+		PagedPool,
+		sizeof(FullItem<ThreadCreateExitInfo>),
+		DRIVER_TAG);
+	if (info == nullptr) {
+		KdPrint((DRIVER_PREFIX "Thread item allocation failed!\n"));
+		return;
+	}
+
+	ThreadCreateExitInfo& item = info->Data;
+	// ItemHeader
+	KeQuerySystemTimePrecise(&item.Time);
+	item.Type = Create ? ItemType::ThreadCreate : ItemType::ThreadExit;
+	item.Size = sizeof(ThreadCreateExitInfo);
+	// Thread Create/Exit
+	item.ProcessId = HandleToULong(ProcessId);
+	item.ThreadId = HandleToULong(ThreadId);
+
+	PushItem(&info->Entry);
+}
+
 void SysMonUnload(_In_ PDRIVER_OBJECT DriverObject) {
 	UNICODE_STRING symbolicLink = RTL_CONSTANT_STRING(L"\\??\\SysMon");
+	
+	PsSetCreateProcessNotifyRoutineEx(OnProcessNotify, TRUE);
+	PsRemoveCreateThreadNotifyRoutine(OnThreadNotify);
 
 	IoDeleteSymbolicLink(&symbolicLink);
 	IoDeleteDevice(DriverObject->DeviceObject);
-	PsSetCreateProcessNotifyRoutineEx(OnProcessNotify, TRUE);
 
 	while (!IsListEmpty(&g_Globals.ItemsHead)) {
 		auto entry = RemoveHeadList(&g_Globals.ItemsHead);
@@ -268,6 +292,12 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 		ntStatus = PsSetCreateProcessNotifyRoutineEx(OnProcessNotify, FALSE);
 		if (!NT_SUCCESS(ntStatus)) {
 			KdPrint((DRIVER_PREFIX "Process notify registration failed (0x%08X)\n", ntStatus));
+			break;
+		}
+
+		ntStatus = PsSetCreateThreadNotifyRoutine(OnThreadNotify);
+		if (!NT_SUCCESS(ntStatus)) {
+			KdPrint((DRIVER_PREFIX "Thread notify registration failed (0x%08X)\n", ntStatus));
 			break;
 		}
 	} while (false);

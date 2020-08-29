@@ -15,6 +15,7 @@ struct FullItem {
 
 struct Globals {
 	LIST_ENTRY ItemsHead;
+	LIST_ENTRY ProcessBlackListHead;
 	int ItemCount;
 	int MaxItemsCount;
 	FastMutex Mutex;

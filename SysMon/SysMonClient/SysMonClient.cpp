@@ -75,6 +75,19 @@ void DisplayItems(const BYTE* buffer, const DWORD bytes) {
 
             break;
         }
+
+        case ItemType::ImageLoad: {
+            DisplayTime(header->Time);
+            LoadImageInfo* info = (LoadImageInfo*)buffer;
+            std::wstring imageName((WCHAR*)(buffer + info->ImagePathOffset), info->ImagePathLength);
+
+            printf("Image loaded:\n");
+            printf("\tProcess = %ws (%d)\n", g_ProcessesImage[info->ProcessId].c_str(), info->ProcessId);
+            printf("\tImageName = %ws\n", imageName.c_str());
+            printf("\tImageBaseAddress = %p\n", info->ImageBaseAddress);
+
+            break;
+        }
         
         default:
             break;

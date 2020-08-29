@@ -5,7 +5,8 @@ enum class ItemType : short {
 	ProcessCreate,
 	ProcessExit,
 	ThreadCreate,
-	ThreadExit
+	ThreadExit,
+	ImageLoad
 };
 
 // Common field of all events
@@ -32,4 +33,16 @@ struct ProcessCreateInfo : ItemHeader {
 struct ThreadCreateExitInfo : ItemHeader {
 	ULONG ProcessId;
 	ULONG ThreadId;
+};
+
+struct LoadImageInfo : ItemHeader {
+	ULONG ProcessId;
+	PVOID ImageBaseAddress;
+	USHORT ImagePathLength;
+	USHORT ImagePathOffset;
+};
+
+struct BlackedListItem {
+	USHORT ImageLength;
+	USHORT ImageOffset;
 };

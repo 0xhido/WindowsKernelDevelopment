@@ -17,6 +17,79 @@ void PushItem(PLIST_ENTRY entry) {
 	g_Globals.ItemCount++;
 }
 
+ULONG GetKeyInfoSize(HANDLE hRegistryKey, PUNICODE_STRING pValueName) {
+	NTSTATUS ntStatus = STATUS_SUCCESS;
+
+	ULONG ulKeyInfoSizeNeeded;
+	ntStatus = ZwQueryValueKey(hRegistryKey, pValueName, KeyValueFullInformation, 0, 0, &ulKeyInfoSizeNeeded);
+	if (ntStatus == STATUS_BUFFER_TOO_SMALL || ntStatus == STATUS_BUFFER_OVERFLOW) {
+		// Expected don't worry
+		return ulKeyInfoSizeNeeded;
+	}
+	else {
+		KdPrint((DRIVER_PREFIX "Could not get key info size (0x%08X)\n", ntStatus));
+	}
+
+	return 0;
+}
+
+ULONG GetDwordValueFromRegistry(PUNICODE_STRING RegistryPath, PUNICODE_STRING ValueName) {
+	NTSTATUS ntStatus = STATUS_SUCCESS;
+	HANDLE hRegistryKey;
+	PKEY_VALUE_FULL_INFORMATION pKeyInfo = nullptr;
+	ULONG value = 0;
+
+	// Create object attributes for registry key querying
+	OBJECT_ATTRIBUTES ObjectAttributes = { 0 };
+	InitializeObjectAttributes(&ObjectAttributes, RegistryPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+
+	do {
+		ntStatus = ZwOpenKey(&hRegistryKey, KEY_QUERY_VALUE, &ObjectAttributes);
+		if (!NT_SUCCESS(ntStatus)) {
+			KdPrint((DRIVER_PREFIX "Registry key open failed (0x%08X)\n", ntStatus));
+			break;
+		}
+
+		ULONG ulKeyInfoSize;
+		ULONG ulKeyInfoSizeNeeded = GetKeyInfoSize(hRegistryKey, ValueName);
+		if (ulKeyInfoSizeNeeded == 0) {
+			KdPrint((DRIVER_PREFIX "Max item count value not found\n"));
+			break;
+		}
+		ulKeyInfoSize = ulKeyInfoSizeNeeded;
+
+		pKeyInfo = (PKEY_VALUE_FULL_INFORMATION)ExAllocatePoolWithTag(PagedPool, ulKeyInfoSize, DRIVER_TAG);
+		if (pKeyInfo == nullptr) {
+			KdPrint((DRIVER_PREFIX "Could not allocate memory for KeyValueInfo\n"));
+			break;
+		}
+		RtlZeroMemory(pKeyInfo, ulKeyInfoSize);
+
+		ntStatus = ZwQueryValueKey(hRegistryKey, ValueName, KeyValueFullInformation, pKeyInfo, ulKeyInfoSize, &ulKeyInfoSizeNeeded);
+		if (!NT_SUCCESS(ntStatus) || ulKeyInfoSize != ulKeyInfoSizeNeeded) {
+			KdPrint((DRIVER_PREFIX "Registry value querying failed (0x%08X)\n", ntStatus));
+			break;
+		}
+
+		value = *(ULONG*)((ULONG_PTR)pKeyInfo + pKeyInfo->DataOffset);
+	} while (false);
+
+	if (hRegistryKey) {
+		ZwClose(hRegistryKey);
+	}
+
+	if (pKeyInfo) {
+		ExFreePoolWithTag(pKeyInfo, DRIVER_TAG);
+	}
+
+	if (!NT_SUCCESS(ntStatus)) {
+		KdPrint((DRIVER_PREFIX "Setting max item count to default value\n"));
+		return 0;
+	}
+
+	return value;
+}
+
 NTSTATUS CompleteIrp(PIRP Irp, NTSTATUS status = STATUS_SUCCESS, ULONG_PTR inforamtion = 0) {
 	Irp->IoStatus.Status = status;
 	Irp->IoStatus.Information = inforamtion;
@@ -68,6 +141,26 @@ NTSTATUS SysMonIrpRead(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	return CompleteIrp(Irp, ntStatus, bytesTransfered);
 }
 
+NTSTATUS SysMonIrpWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
+	NTSTATUS ntStatus = STATUS_SUCCESS;
+	PIO_STACK_LOCATION stack = IoGetCurrentIrpStackLocation(Irp);
+	ULONG bytesFromUser = stack->Parameters.Write.Length;
+	ULONG bytesWritten = 0;
+
+	NT_ASSERT(Irp->MdlAddress);
+	UCHAR* buffer = (UCHAR*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
+	if (!buffer) {
+		KdPrint((DRIVER_PREFIX "could not get system memroy address\n"));
+		ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+	}
+	else {
+		// TODO insert item to list
+		PUNICODE_STRING image = (PUNICODE_STRING)buffer;
+	}
+
+	return CompleteIrp(Irp, ntStatus, bytesWritten);
+}
+
 void OnProcessNotify(_Inout_ PEPROCESS /*Process*/, _In_ HANDLE ProcessId, _Inout_opt_ PPS_CREATE_NOTIFY_INFO CreateInfo) {
 	// Handle process creation
 	if (CreateInfo) {
@@ -103,7 +196,6 @@ void OnProcessNotify(_Inout_ PEPROCESS /*Process*/, _In_ HANDLE ProcessId, _Inou
 		item.ImageLength = 0;
 		item.ImageOffset = sizeof(item);
 		if (imageSize > 0) {
-			// TODO debug and inspect values of the line below
 			memcpy((UCHAR*)&item + item.ImageOffset, CreateInfo->ImageFileName->Buffer, imageSize);
 			item.ImageLength = imageSize / sizeof(WCHAR);
 		}
@@ -160,14 +252,56 @@ void OnThreadNotify(_In_ HANDLE ProcessId, _In_ HANDLE ThreadId, _In_ BOOLEAN Cr
 	item.ProcessId = HandleToULong(ProcessId);
 	item.ThreadId = HandleToULong(ThreadId);
 
+	/*HANDLE CurrentProcessId = PsGetCurrentProcessId();
+	if (HandleToULong(ProcessId) != HandleToULong(CurrentProcessId))
+		KdPrint(("Remote thread created from %d to %d\n", HandleToULong(CurrentProcessId), HandleToULong(ProcessId)));*/
+
+	PushItem(&info->Entry);
+}
+
+void OnLoadImage(_In_opt_ PUNICODE_STRING FullImageName, _In_ HANDLE ProcessId, _In_ PIMAGE_INFO ImageInfo) {
+	if (ProcessId == nullptr)
+		return; // system image - ignore
+
+	USHORT allocSize = sizeof(FullItem<LoadImageInfo>);
+	USHORT imageNameSize = 0;
+
+	if (FullImageName) {
+		imageNameSize = FullImageName->Length;
+		allocSize += imageNameSize;
+	}
+
+	auto info = (FullItem<LoadImageInfo>*)ExAllocatePoolWithTag(PagedPool, allocSize, DRIVER_TAG);
+	if (info == nullptr) {
+		KdPrint((DRIVER_PREFIX "LoadImage item allocation failed!\n"));
+		return;
+	}
+
+	LoadImageInfo& item = info->Data;
+	// ItemHeader
+	KeQuerySystemTimePrecise(&item.Time);
+	item.Type = ItemType::ImageLoad;
+	item.Size = sizeof(LoadImageInfo) + imageNameSize;
+	// LoadImageInfo
+	item.ProcessId = HandleToULong(ProcessId);
+	item.ImageBaseAddress = ImageInfo->ImageBase;
+
+	item.ImagePathLength = 0;
+	item.ImagePathOffset = sizeof(item);
+	if (imageNameSize > 0) {
+		memcpy((UCHAR*)&item + item.ImagePathOffset, FullImageName->Buffer, imageNameSize);
+		item.ImagePathLength = imageNameSize / sizeof(WCHAR);
+	}
+
 	PushItem(&info->Entry);
 }
 
 void SysMonUnload(_In_ PDRIVER_OBJECT DriverObject) {
 	UNICODE_STRING symbolicLink = RTL_CONSTANT_STRING(L"\\??\\SysMon");
-	
+
 	PsSetCreateProcessNotifyRoutineEx(OnProcessNotify, TRUE);
 	PsRemoveCreateThreadNotifyRoutine(OnThreadNotify);
+	PsRemoveLoadImageNotifyRoutine(OnLoadImage);
 
 	IoDeleteSymbolicLink(&symbolicLink);
 	IoDeleteDevice(DriverObject->DeviceObject);
@@ -178,79 +312,6 @@ void SysMonUnload(_In_ PDRIVER_OBJECT DriverObject) {
 	}
 
 	KdPrint(("SysMon driver unloaded successfully\n"));
-}
-
-ULONG GetKeyInfoSize(HANDLE hRegistryKey, PUNICODE_STRING pValueName) {
-	NTSTATUS ntStatus = STATUS_SUCCESS;
-
-	ULONG ulKeyInfoSizeNeeded;
-	ntStatus = ZwQueryValueKey(hRegistryKey, pValueName, KeyValueFullInformation, 0, 0, &ulKeyInfoSizeNeeded);
-	if (ntStatus == STATUS_BUFFER_TOO_SMALL || ntStatus == STATUS_BUFFER_OVERFLOW) {
-		// Expected don't worry
-		return ulKeyInfoSizeNeeded;
-	}
-	else {
-		KdPrint((DRIVER_PREFIX "Could not get key info size (0x%08X)\n", ntStatus));
-	}
-
-	return 0;
-}
-
-ULONG GetDwordValueFromRegistry(PUNICODE_STRING RegistryPath, PUNICODE_STRING ValueName) {
-	NTSTATUS ntStatus = STATUS_SUCCESS;
-	HANDLE hRegistryKey;
-	PKEY_VALUE_FULL_INFORMATION pKeyInfo = nullptr;
-	ULONG value = 0;
-	
-	// Create object attributes for registry key querying
-	OBJECT_ATTRIBUTES ObjectAttributes = { 0 };
-	InitializeObjectAttributes(&ObjectAttributes, RegistryPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
-
-	do {
-		ntStatus = ZwOpenKey(&hRegistryKey, KEY_QUERY_VALUE, &ObjectAttributes);
-		if (!NT_SUCCESS(ntStatus)) {
-			KdPrint((DRIVER_PREFIX "Registry key open failed (0x%08X)\n", ntStatus));
-			break;
-		}
-
-		ULONG ulKeyInfoSize;
-		ULONG ulKeyInfoSizeNeeded = GetKeyInfoSize(hRegistryKey, ValueName);
-		if (ulKeyInfoSizeNeeded == 0) {
-			KdPrint((DRIVER_PREFIX "Max item count value not found\n"));
-			break;
-		}
-		ulKeyInfoSize = ulKeyInfoSizeNeeded;
-
-		pKeyInfo = (PKEY_VALUE_FULL_INFORMATION)ExAllocatePoolWithTag(PagedPool, ulKeyInfoSize, DRIVER_TAG);
-		if (pKeyInfo == nullptr) {
-			KdPrint((DRIVER_PREFIX "Could not allocate memory for KeyValueInfo\n"));
-			break;
-		}
-		RtlZeroMemory(pKeyInfo, ulKeyInfoSize);
-
-		ntStatus = ZwQueryValueKey(hRegistryKey, ValueName, KeyValueFullInformation, pKeyInfo, ulKeyInfoSize, &ulKeyInfoSizeNeeded);
-		if (!NT_SUCCESS(ntStatus) || ulKeyInfoSize != ulKeyInfoSizeNeeded) {
-			KdPrint((DRIVER_PREFIX "Registry value querying failed (0x%08X)\n", ntStatus));
-			break;
-		}
-
-		value = *(ULONG*)((ULONG_PTR)pKeyInfo + pKeyInfo->DataOffset);
-	} while (false);
-
-	if (hRegistryKey) {
-		ZwClose(hRegistryKey);
-	}
-
-	if (pKeyInfo) {
-		ExFreePoolWithTag(pKeyInfo, DRIVER_TAG);
-	}
-
-	if (!NT_SUCCESS(ntStatus)) {
-		KdPrint((DRIVER_PREFIX "Setting max item count to default value\n"));
-		return 0;
-	}
-
-	return value;
 }
 
 extern "C"
@@ -265,6 +326,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 
 	// Initailize global members
 	InitializeListHead(&g_Globals.ItemsHead);
+	InitializeListHead(&g_Globals.ProcessBlackListHead);
 	g_Globals.Mutex.Init();
 
 	// Get max items count from registry
@@ -292,13 +354,16 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 		ntStatus = PsSetCreateProcessNotifyRoutineEx(OnProcessNotify, FALSE);
 		if (!NT_SUCCESS(ntStatus)) {
 			KdPrint((DRIVER_PREFIX "Process notify registration failed (0x%08X)\n", ntStatus));
-			break;
 		}
 
 		ntStatus = PsSetCreateThreadNotifyRoutine(OnThreadNotify);
 		if (!NT_SUCCESS(ntStatus)) {
 			KdPrint((DRIVER_PREFIX "Thread notify registration failed (0x%08X)\n", ntStatus));
-			break;
+		}
+
+		ntStatus = PsSetLoadImageNotifyRoutine(OnLoadImage);
+		if (!NT_SUCCESS(ntStatus)) {
+			KdPrint((DRIVER_PREFIX "Load Image notify registration failed (0x%08X)\n", ntStatus));
 		}
 	} while (false);
 

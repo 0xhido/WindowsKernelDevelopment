@@ -171,6 +171,7 @@
   <ItemGroup>
     <ClInclude Include="AutoLock.h" />
     <ClInclude Include="FastMutex.h" />
+    <ClInclude Include="LinkedList.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="SysMon.h" />
     <ClInclude Include="SysMonCommon.h" />

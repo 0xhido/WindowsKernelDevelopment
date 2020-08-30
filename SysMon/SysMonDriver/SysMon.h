@@ -20,3 +20,13 @@ struct Globals {
 	int MaxItemsCount;
 	FastMutex Mutex;
 };
+
+struct BlackList {
+	LIST_ENTRY Head;
+	USHORT Size;
+};
+
+struct BlackListItem {
+	LIST_ENTRY Entry;
+	UNICODE_STRING ImageName;
+};

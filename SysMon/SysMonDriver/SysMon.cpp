@@ -1,8 +1,10 @@
 #include "pch.h"
 #include "SysMon.h"
 #include "SysMonCommon.h"
+#include "LinkedList.h"
 
 Globals g_Globals;
+LinkedList<BlackListItem, FastMutex> g_BlackList;
 
 void PushItem(PLIST_ENTRY entry) {
 	AutoLock<FastMutex> lock(g_Globals.Mutex);
@@ -147,17 +149,39 @@ NTSTATUS SysMonIrpWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	ULONG bytesFromUser = stack->Parameters.Write.Length;
 	ULONG bytesWritten = 0;
 
-	NT_ASSERT(Irp->MdlAddress);
-	UCHAR* buffer = (UCHAR*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
-	if (!buffer) {
-		KdPrint((DRIVER_PREFIX "could not get system memroy address\n"));
+	BlackListItem* item = static_cast<BlackListItem*>(ExAllocatePoolWithTag(PagedPool, sizeof(BlackListItem), DRIVER_TAG));
+	if (item == nullptr) {
+		KdPrint((DRIVER_PREFIX "could not allocate memory for BlackListItem\n"));
 		ntStatus = STATUS_INSUFFICIENT_RESOURCES;
 	}
-	else {
-		// TODO insert item to list
-		PUNICODE_STRING image = (PUNICODE_STRING)buffer;
+	else if (bytesFromUser < 3) {
+		KdPrint((DRIVER_PREFIX "Invalid image name size\n"));
+		ntStatus = STATUS_INVALID_PARAMETER;
 	}
+	else {
+		NT_ASSERT(Irp->MdlAddress);
+		WCHAR* buffer = (WCHAR*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
+		if (!buffer) {
+			KdPrint((DRIVER_PREFIX "could not get system memroy address\n"));
+			ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+		}
+		else {
+			WCHAR* imageName = (WCHAR*)ExAllocatePoolWithTag(PagedPool, bytesFromUser, DRIVER_TAG);
+			if (imageName == nullptr) {
+				KdPrint((DRIVER_PREFIX "could allocate memory for image name\n"));
+				ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+			}
+			else {
+				if (wcsncpy_s(imageName, bytesFromUser / sizeof(WCHAR), buffer, bytesFromUser / sizeof(WCHAR)) == 0) {
+					RtlInitUnicodeString(&item->ImageName, imageName);
+					g_BlackList.PushFront(item);
 
+					bytesWritten += bytesFromUser;
+				}
+			}
+		}
+	}
+	
 	return CompleteIrp(Irp, ntStatus, bytesWritten);
 }
 
@@ -311,6 +335,15 @@ void SysMonUnload(_In_ PDRIVER_OBJECT DriverObject) {
 		ExFreePool(CONTAINING_RECORD(entry, FullItem<ItemHeader>, Entry));
 	}
 
+	while (!IsListEmpty(g_BlackList.GetHead())) {
+		BlackListItem* entry = g_BlackList.RemoveHead();
+		if (entry->ImageName.Buffer) {
+			ExFreePoolWithTag(entry->ImageName.Buffer, DRIVER_TAG);
+			entry->ImageName.Buffer = nullptr;
+		}
+		ExFreePoolWithTag(entry, DRIVER_TAG);
+	}
+
 	KdPrint(("SysMon driver unloaded successfully\n"));
 }
 
@@ -326,8 +359,8 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 
 	// Initailize global members
 	InitializeListHead(&g_Globals.ItemsHead);
-	InitializeListHead(&g_Globals.ProcessBlackListHead);
 	g_Globals.Mutex.Init();
+	g_BlackList.Init();
 
 	// Get max items count from registry
 	ULONG maxItemCount = GetDwordValueFromRegistry(RegistryPath, &maxItemCountName);
@@ -385,6 +418,7 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING Regi
 	DriverObject->MajorFunction[IRP_MJ_CREATE] = SysMonIrpCreateClose;
 	DriverObject->MajorFunction[IRP_MJ_CLOSE] = SysMonIrpCreateClose;
 	DriverObject->MajorFunction[IRP_MJ_READ] = SysMonIrpRead;
+	DriverObject->MajorFunction[IRP_MJ_WRITE] = SysMonIrpWrite;
 	
 	KdPrint(("SysMon driver DriverEntry finished!\n"));
 

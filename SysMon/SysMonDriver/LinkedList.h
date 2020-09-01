@@ -39,6 +39,20 @@ public:
 		PLIST_ENTRY entry = RemoveEntryList(&item->Entry);
 		return CONTAINING_RECORD(entry, T, Entry);
 	}
+
+	bool IsExist(PCUNICODE_STRING value) {
+		if (!IsListEmpty(&_head)) {
+			PLIST_ENTRY current = &_head;
+			while (current->Flink != &_head) {
+				current = current->Flink;
+				BlackListItem* item = CONTAINING_RECORD(current, BlackListItem, Entry);
+				if (RtlEqualUnicodeString(value, &item->Image, true))
+					return true;
+			}
+		}
+		return false;
+	}
+
 private:
 	LIST_ENTRY _head;
 	TLock _lock;

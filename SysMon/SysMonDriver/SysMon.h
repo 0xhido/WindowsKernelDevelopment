@@ -2,6 +2,7 @@
 
 #include "FastMutex.h"
 #include "AutoLock.h"
+#include "kstring.h"
 
 #define DRIVER_PREFIX "[Sysmon] "
 #define DRIVER_TAG 'nmys'
@@ -28,5 +29,5 @@ struct BlackList {
 
 struct BlackListItem {
 	LIST_ENTRY Entry;
-	UNICODE_STRING ImageName;
+	UNICODE_STRING Image;
 };

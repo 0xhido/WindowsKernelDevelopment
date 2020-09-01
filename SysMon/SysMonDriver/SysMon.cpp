@@ -2,6 +2,10 @@
 #include "SysMon.h"
 #include "SysMonCommon.h"
 #include "LinkedList.h"
+#include "kstring.h"
+
+#define IMAGE_PREFIX L"\\??\\"
+#define IMAGE_PREFIX_BYTES 8
 
 Globals g_Globals;
 LinkedList<BlackListItem, FastMutex> g_BlackList;
@@ -149,16 +153,19 @@ NTSTATUS SysMonIrpWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 	ULONG bytesFromUser = stack->Parameters.Write.Length;
 	ULONG bytesWritten = 0;
 
-	BlackListItem* item = static_cast<BlackListItem*>(ExAllocatePoolWithTag(PagedPool, sizeof(BlackListItem), DRIVER_TAG));
-	if (item == nullptr) {
-		KdPrint((DRIVER_PREFIX "could not allocate memory for BlackListItem\n"));
-		ntStatus = STATUS_INSUFFICIENT_RESOURCES;
-	}
-	else if (bytesFromUser < 3) {
+	if (bytesFromUser < 3) {
 		KdPrint((DRIVER_PREFIX "Invalid image name size\n"));
 		ntStatus = STATUS_INVALID_PARAMETER;
 	}
 	else {
+		BlackListItem* item = static_cast<BlackListItem*>(ExAllocatePoolWithTag(PagedPool, sizeof(BlackListItem), DRIVER_TAG));
+		if (item == nullptr) {
+			KdPrint((DRIVER_PREFIX "could not allocate memory for BlackListItem\n"));
+			ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+			return CompleteIrp(Irp, ntStatus);
+		}
+		memset(item, 0, sizeof(BlackListItem));
+
 		NT_ASSERT(Irp->MdlAddress);
 		WCHAR* buffer = (WCHAR*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, NormalPagePriority);
 		if (!buffer) {
@@ -166,18 +173,25 @@ NTSTATUS SysMonIrpWrite(_In_ PDEVICE_OBJECT /*DeviceObject*/, _In_ PIRP Irp) {
 			ntStatus = STATUS_INSUFFICIENT_RESOURCES;
 		}
 		else {
-			WCHAR* imageName = (WCHAR*)ExAllocatePoolWithTag(PagedPool, bytesFromUser, DRIVER_TAG);
-			if (imageName == nullptr) {
-				KdPrint((DRIVER_PREFIX "could allocate memory for image name\n"));
-				ntStatus = STATUS_INSUFFICIENT_RESOURCES;
-			}
-			else {
-				if (wcsncpy_s(imageName, bytesFromUser / sizeof(WCHAR), buffer, bytesFromUser / sizeof(WCHAR)) == 0) {
-					RtlInitUnicodeString(&item->ImageName, imageName);
-					g_BlackList.PushFront(item);
+			kstring imageString(IMAGE_PREFIX);
+			imageString.Append(buffer, bytesFromUser);
 
-					bytesWritten += bytesFromUser;
+			UNICODE_STRING imageUnicodeString = { 0 };
+			imageString.GetUnicodeString(&imageUnicodeString);
+			if (g_BlackList.IsExist(&imageUnicodeString) == false) {
+				item->Image.Buffer = (WCHAR*)ExAllocatePoolWithTag(PagedPool, imageString.Length(), DRIVER_TAG);
+				if (!item->Image.Buffer) {
+					KdPrint((DRIVER_PREFIX "could allocate memory for image name buffer\n"));
+					ntStatus = STATUS_INSUFFICIENT_RESOURCES;
 				}
+				else {
+					wcscpy_s(item->Image.Buffer, imageString.Length(), imageString.Get());
+					item->Image.Length = (USHORT)(wcslen(item->Image.Buffer) * sizeof(WCHAR));
+					item->Image.MaximumLength = (USHORT)(wcslen(item->Image.Buffer) * sizeof(WCHAR));
+				}
+				g_BlackList.PushFront(item);
+
+				bytesWritten += bytesFromUser;
 			}
 		}
 	}
@@ -196,7 +210,14 @@ void OnProcessNotify(_Inout_ PEPROCESS /*Process*/, _In_ HANDLE ProcessId, _Inou
 		if (CreateInfo->ImageFileName) {
 			imageSize = CreateInfo->ImageFileName->Length;
 			allocSize += imageSize;
+
+			if (g_BlackList.IsExist(CreateInfo->ImageFileName) == true) {
+				KdPrint(("File not allowed to Execute: %ws\n", CreateInfo->ImageFileName->Buffer));
+				CreateInfo->CreationStatus = STATUS_ACCESS_DENIED;
+				return;
+			}
 		}
+
 		if (CreateInfo->CommandLine) {
 			commandLineSize = CreateInfo->CommandLine->Length;
 			allocSize += commandLineSize;
@@ -337,9 +358,8 @@ void SysMonUnload(_In_ PDRIVER_OBJECT DriverObject) {
 
 	while (!IsListEmpty(g_BlackList.GetHead())) {
 		BlackListItem* entry = g_BlackList.RemoveHead();
-		if (entry->ImageName.Buffer) {
-			ExFreePoolWithTag(entry->ImageName.Buffer, DRIVER_TAG);
-			entry->ImageName.Buffer = nullptr;
+		if (entry->Image.Buffer) {
+			ExFreePoolWithTag(entry->Image.Buffer, DRIVER_TAG);
 		}
 		ExFreePoolWithTag(entry, DRIVER_TAG);
 	}

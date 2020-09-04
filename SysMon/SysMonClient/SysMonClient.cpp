@@ -98,26 +98,61 @@ void DisplayItems(const BYTE* buffer, const DWORD bytes) {
     }
 }
 
-int main()
+void PrintUsageAndExit() {
+    printf("Usage: Sysmon.exe <command> [<parameter>]\n");
+    printf("\tcommand - add | remove | clear | monitor | get\n");
+    printf("\tparameter - image full path\n");
+    printf("\tmonitor and get don't need a parameter\n");
+    exit(1);
+}
+
+int wmain(int argc, wchar_t* argv[]) 
 {
-    HANDLE hFile = CreateFile(L"\\\\.\\SysMon", GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (argc < 2) {
+        PrintUsageAndExit();
+    }
+    
+    std::wstring command(argv[1]);
+
+    BYTE buffer[4096];
+    HANDLE hFile = CreateFile(L"\\\\.\\SysMon", GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         return Error("Could not open file");
     }
 
-    BYTE buffer[4096];
+    if (!wcscmp(command.c_str(), L"monitor")) {
+        while (true) {
+            DWORD bytesRead;
+            if (!ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, nullptr)) {
+                return Error("Could not read file");
+            }
 
-    while (true) {
-        DWORD bytesRead;
-        if (!ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, nullptr)) {
-            return Error("Could not read file");
+            if (bytesRead != 0)
+                DisplayItems(buffer, bytesRead);
+
+            Sleep(200);
+        }
+    }
+    else if (_wcsicmp(argv[1], L"add") == 0) {
+        if (argc < 3) {
+            PrintUsageAndExit();
         }
 
-        if (bytesRead != 0)
-            DisplayItems(buffer, bytesRead);
+        /*std::wstring image(argv[2]);
+        DWORD allocSize = sizeof(BlackListItem) + (image.capacity() * sizeof(WCHAR));
 
-        Sleep(200);
+        BlackListItem* item = (BlackListItem*)calloc(allocSize, sizeof(char));
+        if (item == NULL) {
+            return Error("Could not create buffer for image");
+        }
+
+        item->ImageLength = image.capacity();
+        item->ImageOffset = sizeof(BlackListItem);
+        memcpy((UCHAR*)item + item->ImageOffset, image.c_str(), image.capacity() * sizeof(WCHAR));*/
+
+        DWORD bytesWritten;
+        if (!WriteFile(hFile, (PVOID)argv[2], ((DWORD)wcslen(argv[2]) + 1) * sizeof(WCHAR), &bytesWritten, nullptr)) {
+            return Error("Add image failed");
+        }
     }
-
-    std::cout << "Hello World!\n";
 }

@@ -41,8 +41,3 @@ struct LoadImageInfo : ItemHeader {
 	USHORT ImagePathLength;
 	USHORT ImagePathOffset;
 };
-
-struct BlackedListItem {
-	USHORT ImageLength;
-	USHORT ImageOffset;
-};

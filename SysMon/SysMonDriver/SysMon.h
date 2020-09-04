@@ -2,6 +2,7 @@
 
 #include "FastMutex.h"
 #include "AutoLock.h"
+#include "kstring.h"
 
 #define DRIVER_PREFIX "[Sysmon] "
 #define DRIVER_TAG 'nmys'
@@ -19,4 +20,14 @@ struct Globals {
 	int ItemCount;
 	int MaxItemsCount;
 	FastMutex Mutex;
+};
+
+struct BlackList {
+	LIST_ENTRY Head;
+	USHORT Size;
+};
+
+struct BlackListItem {
+	LIST_ENTRY Entry;
+	UNICODE_STRING Image;
 };

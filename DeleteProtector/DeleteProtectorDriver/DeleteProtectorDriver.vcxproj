@@ -35,6 +35,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="FastMutex.cpp" />
     <ResourceCompile Include="DeleteProtectorDriver.rc" />
     <ClCompile Include="DeleteProtectorDriver.cpp" />
     <Inf Include="DeleteProtectorDriver.inf" />
@@ -179,6 +180,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="AutoLock.h" />
+    <ClInclude Include="DeleteProtectorCommon.h" />
+    <ClInclude Include="FastMutex.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

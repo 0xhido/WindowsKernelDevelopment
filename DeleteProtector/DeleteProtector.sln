@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DeleteProtectorDriver", "De
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DeleteProtectorClient", "DeleteProtectorClient\DeleteProtectorClient.vcxproj", "{86352059-567C-4417-9424-5254B28D2659}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DeleteProtectorTest", "DeleteProtectorTest\DeleteProtectorTest.vcxproj", "{D70880AB-7933-427E-81CF-367D233FCD76}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -55,6 +57,18 @@ Global
 		{86352059-567C-4417-9424-5254B28D2659}.Release|x64.Build.0 = Release|x64
 		{86352059-567C-4417-9424-5254B28D2659}.Release|x86.ActiveCfg = Release|Win32
 		{86352059-567C-4417-9424-5254B28D2659}.Release|x86.Build.0 = Release|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|ARM.ActiveCfg = Debug|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|x64.ActiveCfg = Debug|x64
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|x64.Build.0 = Debug|x64
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|x86.ActiveCfg = Debug|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Debug|x86.Build.0 = Debug|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|ARM.ActiveCfg = Release|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|ARM64.ActiveCfg = Release|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|x64.ActiveCfg = Release|x64
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|x64.Build.0 = Release|x64
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|x86.ActiveCfg = Release|Win32
+		{D70880AB-7933-427E-81CF-367D233FCD76}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

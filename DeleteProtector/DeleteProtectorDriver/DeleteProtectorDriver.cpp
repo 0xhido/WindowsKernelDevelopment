@@ -370,7 +370,7 @@ DeleteProtectorDeviceControl(PDEVICE_OBJECT /*DeviceObject*/, PIRP Irp)
             break;
         }
 
-        for (int i = 0; i < ExeNamesCount; i++) {
+        for (int i = 0; i < MaxExecutables; i++) {
             if (ExeNames[i] == nullptr) {
                 auto len = (wcslen(name) + 1) * sizeof(WCHAR);
                 WCHAR* buffer = (WCHAR*)ExAllocatePoolWithTag(PagedPool, len, DRIVER_TAG);
@@ -387,6 +387,8 @@ DeleteProtectorDeviceControl(PDEVICE_OBJECT /*DeviceObject*/, PIRP Irp)
                 break;
             }
         }
+
+        break;
     }
         
     case IOCTL_DELETEPROTECTOR_REMOVE_EXE: {
@@ -584,7 +586,7 @@ FindExecutable(PCWSTR name) {
         return false;
     }
 
-    for (int i = 0; i < ExeNamesCount; i++) {
+    for (int i = 0; i < MaxExecutables; i++) {
         if (ExeNames[i] && _wcsicmp(ExeNames[i], name) == 0) {
             return true;
         }
@@ -597,7 +599,7 @@ void
 ClearAll() {
     AutoLock<FastMutex> locker(ExeNamesLock);
 
-    for (int i = 0; i < ExeNamesCount; i++) {
+    for (int i = 0; i < MaxExecutables; i++) {
         if (ExeNames[i]) {
             ExFreePoolWithTag(ExeNames[i], DRIVER_TAG);
             ExeNames[i] = nullptr;

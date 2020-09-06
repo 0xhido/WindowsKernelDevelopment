@@ -11,17 +11,24 @@ int Error(const char* text) {
 }
 
 int PrintUsage() {
-    printf("Usage: DeleteProtectorClient.exe <method> [exe]\n");
+    printf("Usage: DeleteProtectorClient.exe <method> <object> [name/path]\n");
+    
     printf("\tMethod:\n");
-    printf("\tadd (must include exe) - Adds an EXE to the black list\n");
-    printf("\tremove (must include exe) - Removes an EXE from the black list\n");
+    printf("\tadd (must include name/path) - Adds an OBJECT to the black list\n");
+    printf("\tremove (must include name/path) - Removes an OBJECT from the black list\n");
     printf("\tclear - Clears the black list\n");
+
+    printf("\tObject:\n");
+    printf("\texe - Executable - prevent deletion from that executable name (cmd.exe)\n");
+    printf("\tdir - Directory - prevent deletion from that directory path\n");
+
+    printf("NOTE: Directories should be slash(\\) terminaterd\n");
     return 0;
 }
 
 int wmain(int argc, const wchar_t* argv[])
 {
-    if (argc < 2) {
+    if (argc < 3) {
         return PrintUsage();
     }
 
@@ -33,40 +40,54 @@ int wmain(int argc, const wchar_t* argv[])
 
     BOOL ok = true;
     DWORD returned;
-
+    int ioctl;
+    
     if (_wcsicmp(argv[1], L"add") == 0) {
-        if (argc < 3) {
+        if (argc < 4) {
             return PrintUsage();
         }
 
+        if (_wcsicmp(argv[2], L"exe") == 0) ioctl = IOCTL_DELETEPROTECTOR_ADD_EXE;
+        else if (_wcsicmp(argv[2], L"dir") == 0) ioctl = IOCTL_DELETEPROTECTOR_ADD_DIR;
+        else return PrintUsage();
+
         ok = DeviceIoControl(
-            hDevice, 
-            IOCTL_DELETEPROTECTOR_ADD_EXE, 
-            (PVOID)argv[2], (wcslen(argv[2]) + 1) * sizeof(WCHAR), 
-            nullptr, 0, 
-            &returned, 
+            hDevice,
+            ioctl,
+            (PVOID)argv[3], (wcslen(argv[3]) + 1) * sizeof(WCHAR),
+            nullptr, 0,
+            &returned,
             nullptr);
     }
     else if (_wcsicmp(argv[1], L"remove") == 0) {
-        if (argc < 3) {
+        if (argc < 4) {
             return PrintUsage();
         }
 
+        if (_wcsicmp(argv[2], L"exe") == 0) ioctl = IOCTL_DELETEPROTECTOR_REMOVE_EXE;
+        else if (_wcsicmp(argv[2], L"dir") == 0) ioctl = IOCTL_DELETEPROTECTOR_REMOVE_DIR;
+        else return PrintUsage();
+
         ok = DeviceIoControl(
-            hDevice, 
-            IOCTL_DELETEPROTECTOR_REMOVE_EXE, 
-            (PVOID)argv[2], (wcslen(argv[2]) + 1) * sizeof(WCHAR), 
-            nullptr, 0, 
-            &returned, 
+            hDevice,
+            ioctl,
+            (PVOID)argv[3], (wcslen(argv[3]) + 1) * sizeof(WCHAR),
+            nullptr, 0,
+            &returned,
             nullptr);
     }
     else if (_wcsicmp(argv[1], L"clear") == 0) {
-        ok = DeviceIoControl(hDevice, IOCTL_DELETEPROTECTOR_CLEAR, nullptr, 0, nullptr, 0, &returned, nullptr);
+        if (_wcsicmp(argv[2], L"exe") == 0) ioctl = IOCTL_DELETEPROTECTOR_CLEAR;
+        else if (_wcsicmp(argv[2], L"dir") == 0) ioctl = IOCTL_DELETEPROTECTOR_CLEAR_DIRS;
+        else return PrintUsage();
+
+        ok = DeviceIoControl(hDevice, ioctl, nullptr, 0, nullptr, 0, &returned, nullptr);
     }
     else {
         return PrintUsage();
     }
 
+    
     if (!ok) {
         return Error("Operation failed.");
     }

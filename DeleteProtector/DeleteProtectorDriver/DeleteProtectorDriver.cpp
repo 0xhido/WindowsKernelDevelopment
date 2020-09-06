@@ -16,22 +16,7 @@ Environment:
 
 #include <fltKernel.h>
 #include <dontuse.h>
-
-#include "DeleteProtectorCommon.h"
-#include "FastMutex.h"
-#include "AutoLock.h"
-
-#pragma prefast(disable:__WARNING_ENCODE_MEMBER_FUNCTION_POINTER, "Not valid for kernel mode drivers")
-
-#define PTDBG_TRACE_ROUTINES            0x00000001
-#define PTDBG_TRACE_OPERATION_STATUS    0x00000002
-
-#define PT_DBG_PRINT( _dbgLevel, _string )          \
-    (FlagOn(gTraceFlags,(_dbgLevel)) ?              \
-        DbgPrint _string :                          \
-        ((int)0))
-
-#define DRIVER_TAG 'pled'
+#include "DeleteProtectorDriver.h"
 
 /*************************************************************************
     Globals
@@ -46,15 +31,25 @@ WCHAR* ExeNames[MaxExecutables];
 int ExeNamesCount;
 FastMutex ExeNamesLock;
 
+const int MaxDirectories = 32;
+DirectoryEntry DirNames[MaxDirectories];
+int DirNamesCount;
+FastMutex DirNamesLock;
+
+
 /*************************************************************************
     Prototypes
 *************************************************************************/
 
 EXTERN_C_START
 
-bool IsDeleteAllowed(const PEPROCESS Process);
+bool IsDeleteAllowedByProcess(const PEPROCESS Process);
+bool IsDeleteAllowedByDirectory(_In_ PFLT_CALLBACK_DATA Data);
 bool FindExecutable(PCWSTR name);
-void ClearAll();
+void ClearAllExes();
+int FindDirectory(PCUNICODE_STRING name, bool dosName);
+NTSTATUS ConvertDosNameToNtName(_In_ PCWSTR dosName, _Out_ PUNICODE_STRING ntName);
+void ClearAllDirs();
 
 DRIVER_INITIALIZE DriverEntry;
 NTSTATUS
@@ -287,6 +282,7 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
         DriverObject->MajorFunction[IRP_MJ_CLOSE] = DeleteProtectorCreateClose;
         DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DeleteProtectorDeviceControl;
         ExeNamesLock.Init();
+        DirNamesLock.Init();
 
         status = FltStartFiltering(gFilterHandle);
         FLT_ASSERT(NT_SUCCESS(status));
@@ -353,13 +349,13 @@ DeleteProtectorDeviceControl(PDEVICE_OBJECT /*DeviceObject*/, PIRP Irp)
     case IOCTL_DELETEPROTECTOR_ADD_EXE: {
         WCHAR* name = (WCHAR*)Irp->AssociatedIrp.SystemBuffer;
         if (!name) {
-            KdPrint(("Got invalid name\n"));
+            KdPrint(("Got invalid executable name\n"));
             ntStatus = STATUS_INVALID_PARAMETER;
             break;
         }
 
         if (FindExecutable(name)) {
-            KdPrint(("Name already exists\n"));
+            KdPrint(("Executable name already exists\n"));
             break;
         }
 
@@ -421,10 +417,111 @@ DeleteProtectorDeviceControl(PDEVICE_OBJECT /*DeviceObject*/, PIRP Irp)
     }
 
     case IOCTL_DELETEPROTECTOR_CLEAR: {
-        ClearAll();
+        ClearAllExes();
         break;
     }
 
+    case IOCTL_DELETEPROTECTOR_ADD_DIR: {
+        WCHAR* dirName = (WCHAR*)Irp->AssociatedIrp.SystemBuffer;
+        if (!dirName) {
+            KdPrint(("Got invalid directory name\n"));
+            ntStatus = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        ULONG bufferLen = stack->Parameters.DeviceIoControl.InputBufferLength;
+        if (bufferLen > 1024) {
+            KdPrint(("Directory name too long - skipped\n"));
+            ntStatus = STATUS_NAME_TOO_LONG;
+            break;
+        }
+
+        dirName[bufferLen / sizeof(WCHAR) - 1] = L'\0';
+        
+        size_t dosNameLen = wcslen(dirName);
+        if (dosNameLen < 3) {
+            KdPrint(("Got invalid directory name\n"));
+            ntStatus = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+
+        AutoLock<FastMutex> locker(DirNamesLock);
+        if (DirNamesCount == MaxDirectories) {
+            KdPrint(("Directories black list is full\n"));
+            ntStatus = STATUS_TOO_MANY_NAMES;
+            break;
+        }
+
+        UNICODE_STRING strName;
+        RtlInitUnicodeString(&strName, dirName);
+        
+        if (FindDirectory(&strName, true) >= 0) {
+            KdPrint(("Directory name already exists\n"));
+            break;
+        }
+
+        for (int i = 0; i < MaxDirectories; i++) {
+            if (DirNames[i].DosName.Buffer == nullptr) {
+                size_t len = (dosNameLen + 2) * sizeof(WCHAR); // add space for backslash and NULL terminator
+                WCHAR* buffer = (WCHAR*)ExAllocatePoolWithTag(PagedPool, len, DRIVER_TAG);
+                if (buffer == nullptr) {
+                    KdPrint(("Could not allocate memory for directory name buffer\n"));
+                    ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+                    break;
+                }
+
+                wcscpy_s(buffer, len / sizeof(WCHAR), dirName);
+
+                if (dirName[dosNameLen - 1] != L'\\')
+                    wcscat_s(buffer, len / sizeof(WCHAR), L"\\");
+
+                ntStatus = ConvertDosNameToNtName(buffer, &DirNames[i].NtName);
+                if (!NT_SUCCESS(ntStatus)) {
+                    ExFreePool(buffer);
+                    break;
+                }
+
+                RtlInitUnicodeString(&DirNames[i].DosName, buffer);
+                KdPrint(("Add: %wZ <=> %wZ\n", &DirNames[i].DosName, &DirNames[i].NtName));
+                DirNamesCount++;
+                break;
+            }
+        }
+
+        break;
+    }
+
+    case IOCTL_DELETEPROTECTOR_REMOVE_DIR: {
+        WCHAR* dirName = (WCHAR*)Irp->AssociatedIrp.SystemBuffer;
+        if (!dirName) {
+            KdPrint(("Got invalid directory name\n"));
+            ntStatus = STATUS_INVALID_PARAMETER;
+            break;
+        }
+
+        UNICODE_STRING strName;
+        RtlInitUnicodeString(&strName, dirName);
+
+        AutoLock<FastMutex> locker(DirNamesLock);
+        int directoryIndex = FindDirectory(&strName, true);
+        if (directoryIndex < 0) {
+            KdPrint(("Directory not found - nothing to delete\n"));
+            ntStatus = STATUS_NOT_FOUND;
+        }
+        else {
+            DirNames[directoryIndex].Free();
+            DirNamesCount--;
+        }
+
+        break;
+    }
+
+    case IOCTL_DELETEPROTECTOR_CLEAR_DIRS: {
+        ClearAllDirs();
+
+        break;
+    }
+    
     default:
         ntStatus = STATUS_INVALID_DEVICE_REQUEST;
         break;
@@ -447,7 +544,8 @@ DeleteProtectorUnload(PDRIVER_OBJECT DriverObject) {
     if (DriverObject->DeviceObject)
         IoDeleteDevice(DriverObject->DeviceObject);
 
-    ClearAll();
+    ClearAllExes();
+    ClearAllDirs();
 
     KdPrint(("Driver Unloaded!\n"));
 }
@@ -469,7 +567,7 @@ DeleteProtectorDriverPreCreate(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OBJECTS Fl
     if (createParams.Options & FILE_DELETE_ON_CLOSE) {
         KdPrint(("Delete on close: %wZ\n", &Data->Iopb->TargetFileObject->FileName));
 
-        if (!IsDeleteAllowed(PsGetCurrentProcess())) {
+        if (!IsDeleteAllowedByProcess(PsGetCurrentProcess()) || !IsDeleteAllowedByDirectory(Data)) {
             Data->IoStatus.Status = STATUS_ACCESS_DENIED;
             fltStatus = FLT_PREOP_COMPLETE;
 
@@ -511,7 +609,7 @@ DeleteProtectorDriverPreSetInformation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OB
     PEPROCESS process = PsGetThreadProcess(Data->Thread);
     NT_ASSERT(process);
 
-    if (!IsDeleteAllowed(process)) {
+    if (!IsDeleteAllowedByProcess(process) || !IsDeleteAllowedByDirectory(Data)) {
         Data->IoStatus.Status = STATUS_ACCESS_DENIED;
         fltStatus = FLT_PREOP_COMPLETE;
 
@@ -526,7 +624,7 @@ DeleteProtectorDriverPreSetInformation(PFLT_CALLBACK_DATA Data, PCFLT_RELATED_OB
 *************************************************************************/
 
 bool 
-IsDeleteAllowed(const PEPROCESS Process) {
+IsDeleteAllowedByProcess(const PEPROCESS Process) {
     bool currentProcess = PsGetCurrentProcess() == Process;
     HANDLE hProcess;
 
@@ -579,6 +677,44 @@ IsDeleteAllowed(const PEPROCESS Process) {
 }
 
 bool
+IsDeleteAllowedByDirectory(_In_ PFLT_CALLBACK_DATA Data) {
+    NTSTATUS ntStatus = STATUS_SUCCESS;
+    PFLT_FILE_NAME_INFORMATION nameInfo = nullptr;
+    bool allow = true;
+
+    do {
+        ntStatus = FltGetFileNameInformation(Data, FLT_FILE_NAME_QUERY_DEFAULT | FLT_FILE_NAME_NORMALIZED, &nameInfo);
+        if (!NT_SUCCESS(ntStatus)) {
+            KdPrint(("FltGetFileNameInformation failed\n"));
+            break;
+        }
+
+        ntStatus = FltParseFileNameInformation(nameInfo);
+        if (!NT_SUCCESS(ntStatus)) {
+            KdPrint(("FltParseFileNameInformation failed\n"));
+            break;
+        }
+
+        UNICODE_STRING path;
+        path.Length = path.MaximumLength =
+            nameInfo->Volume.Length + nameInfo->Share.Length + nameInfo->ParentDir.Length;
+        path.Buffer = nameInfo->Volume.Buffer; // includes the full path because the path is contiguous in memory
+
+        AutoLock<FastMutex> locker(DirNamesLock);
+
+        if (FindDirectory(&path, false) >= 0) {
+            KdPrint(("File not allowed to be deleted: %wZ\n", nameInfo->Name));
+            allow = false;
+        }
+    } while (false);
+
+    if (nameInfo)
+        FltReleaseFileNameInformation(nameInfo);
+
+    return allow;
+}
+
+bool
 FindExecutable(PCWSTR name) {
     AutoLock<FastMutex> locker(ExeNamesLock);
 
@@ -596,7 +732,7 @@ FindExecutable(PCWSTR name) {
 }
 
 void 
-ClearAll() {
+ClearAllExes() {
     AutoLock<FastMutex> locker(ExeNamesLock);
 
     for (int i = 0; i < MaxExecutables; i++) {
@@ -608,4 +744,98 @@ ClearAll() {
     }
 
     ExeNamesCount = 0;
+}
+
+int 
+FindDirectory(PCUNICODE_STRING name, bool dosName) {
+    if (DirNamesCount == 0)
+        return -1;
+
+    for (int i = 0; i < MaxDirectories; i++) {
+        const UNICODE_STRING& dir = dosName ? DirNames[i].DosName : DirNames[i].NtName;
+
+        if (dir.Buffer&& RtlEqualUnicodeString(name, &dir, TRUE)) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+NTSTATUS 
+ConvertDosNameToNtName(_In_ PCWSTR dosName, _Out_ PUNICODE_STRING ntName) {
+    NTSTATUS ntStatus = STATUS_SUCCESS;
+    size_t dosNameLen = wcslen(dosName);
+    
+    ntName->Buffer = nullptr;
+
+    if (dosNameLen < 3) {
+        KdPrint(("Dos Name is too small for conversion\n"));
+        return STATUS_BUFFER_TOO_SMALL;
+    }
+
+    if (dosName[2] != L'\\' || dosName[1] != L':') {
+        KdPrint(("Dos Name must be local directory (starting with C: or any drive letter)\n"));
+        return STATUS_INVALID_PARAMETER;
+    }
+    
+    kstring symbLink(L"\\??\\");
+    symbLink.Append(dosName, 2);
+
+    UNICODE_STRING symbLinkFull;
+    symbLink.GetUnicodeString(&symbLinkFull);
+
+    OBJECT_ATTRIBUTES symbLinkAttributes;
+    InitializeObjectAttributes(&symbLinkAttributes, &symbLinkFull, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, nullptr, nullptr);
+
+    HANDLE hSymbLink = nullptr;
+    
+    do {
+        ntStatus = ZwOpenSymbolicLinkObject(&hSymbLink, GENERIC_READ, &symbLinkAttributes);
+        if (!NT_SUCCESS(ntStatus)) {
+            KdPrint(("Open symbolic link to drive letter failed\n"));
+            break;
+        }
+
+        USHORT maxLen = 1024;
+        ntName->Buffer = (WCHAR*)ExAllocatePoolWithTag(PagedPool, maxLen, DRIVER_TAG);
+        if (ntName->Buffer == nullptr) {
+            KdPrint(("Could not allocate memory for NtName buffer\n"));
+            ntStatus = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+        ntName->MaximumLength = maxLen;
+
+        ntStatus = ZwQuerySymbolicLinkObject(hSymbLink, ntName, nullptr);
+        if (!NT_SUCCESS(ntStatus)) {
+            KdPrint(("Query symbolic link object failed\n"));
+            break;
+        }
+    } while (false);
+
+    if (!NT_SUCCESS(ntStatus)) {
+        if (ntName->Buffer) {
+            ExFreePoolWithTag(ntName->Buffer, DRIVER_TAG);
+            ntName->Buffer = nullptr;
+        }
+    }
+    else {
+        RtlAppendUnicodeToString(ntName, dosName + 2);
+    }
+
+    if (hSymbLink)
+        ZwClose(hSymbLink);
+
+    return ntStatus;
+}
+
+void
+ClearAllDirs() {
+    AutoLock<FastMutex> locker(DirNamesLock);
+
+    for (int i = 0; i < MaxDirectories; i++) {
+        DirNames[i].Free();
+    }
+
+    DirNamesCount = 0;
 }

@@ -35,6 +35,9 @@
     <ClCompile Include="FastMutex.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="kstring.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FastMutex.h">
@@ -44,6 +47,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="AutoLock.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DeleteProtectorDriver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="kstring.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
